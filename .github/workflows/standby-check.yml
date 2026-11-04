@@ -1,0 +1,66 @@
+name: 備用執行器檢查（不查航空）
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: standby-check
+  cancel-in-progress: false
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: 驗證備用檢查程式
+        run: python -m unittest -q
+  check:
+    if: github.event_name != 'pull_request'
+    needs: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      TZ: Asia/Taipei
+      HANDOFF_ENABLED: '0'
+      LETTER_OCR_ENABLED: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: 檢查讀取憑證
+        env:
+          DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+        run: |
+          if [ -z "$DATA_TOKEN" ]; then
+            echo '::error::請在新 repo 設定 DATA_TOKEN Secret，不要把 Token 貼進程式或對話。'
+            exit 1
+          fi
+      - name: 取得正式程式（只讀）
+        uses: actions/checkout@v4
+        with:
+          repository: EDDIELI-coder/claude--
+          ref: main
+          token: ${{ secrets.DATA_TOKEN }}
+          path: source
+          persist-credentials: false
+      - name: 取得共用狀態（只讀）
+        uses: actions/checkout@v4
+        with:
+          repository: EDDIELI-coder/claude--
+          ref: award-data
+          token: ${{ secrets.DATA_TOKEN }}
+          path: saved
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: 檢查共用冷卻及待查狀態
+        run: python standby_check.py --source source/jx_fares --state saved/scan_state.json --awards saved/as_awards.json
