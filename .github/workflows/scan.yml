@@ -108,7 +108,7 @@ jobs:
         env:
           MODE: ${{ inputs.mode }}
           RUNNER_BATCH_LIMIT: ${{ steps.claim.outputs.limit }}
-          SCAN_PARTITION_REPO: ${{ github.repository }}
+          SCAN_PARTITION_REPO: ${{ steps.claim.outputs.partition }}
         run: |
           python ../src/jx_fares/run_scans.py ${MODE:+--force "$MODE"} > scan_log.txt 2>&1 || rc=$?
           # 公開紀錄只印排程與摘要
