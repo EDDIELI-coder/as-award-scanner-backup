@@ -1,0 +1,192 @@
+name: 掃描
+
+# 只負責掃描：程式與資料都在私人 repo（EDDIELI-coder/claude--），這裡用 DATA_TOKEN 讀寫。
+# 要跑哪些掃描由 jx_fares/run_scans.py 依 scan_state.json 決定（近期頭等每次都跑）。
+# 掃完把資料寫回私人 repo 的 award-data 分支，再通知私人 repo 產生快查頁、比對新位子、傳 Telegram。
+# 公開的執行紀錄只印成功／失敗的數字；完整紀錄存在私人 repo 的 scan_log.txt。
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/scan.yml']
+  schedule:
+    - cron: '17 2-23/4 * * *'   # 備用執行器；與主執行器錯開兩小時
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 留空＝照排程；或指定模式（逗號分隔）：near, daily, fsweep, firstfar, weekly, business, japan, census
+        type: string
+        default: ''
+      cooldown_retry_until:
+        description: 由備援服務填入的冷卻到期時間；排隊期間若已補查則略過
+        type: string
+        default: ''
+      continuation_id:
+        description: 由接續服務填入的批次識別碼
+        type: string
+        default: ''
+      human_handoff:
+        description: 僅本次手動人工接手（須已有網站阻擋紀錄，最多等待 10 分鐘）
+        type: boolean
+        default: false
+
+permissions:
+  actions: write
+  id-token: write
+
+concurrency:
+  group: scan
+  cancel-in-progress: false
+
+env:
+  PRIVATE_REPO: EDDIELI-coder/claude--
+
+jobs:
+  scan:
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    env:
+      TZ: Asia/Taipei
+      CONTINUATION_ID: ${{ inputs.continuation_id }}
+      COOLDOWN_RETRY_UNTIL: ${{ inputs.cooldown_retry_until }}
+      HANDOFF_ENABLED: ${{ github.event_name == 'workflow_dispatch' && inputs.human_handoff == true && '1' || '0' }}
+    steps:
+      - name: 取得掃描程式（私人 repo main）
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.PRIVATE_REPO }}
+          token: ${{ secrets.DATA_TOKEN }}
+          path: src
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 領取共用待查批次
+        id: claim
+        env:
+          SCAN_MODE: ${{ inputs.mode }}
+          DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+        run: |
+          if [[ ",${SCAN_MODE}," == *",smoke,"* ]]; then
+            echo '請使用 standby-check 做只讀診斷，不在分工排程執行 smoke'
+            exit 1
+          fi
+          python src/jx_fares/runner_pool.py claim
+
+      - name: 取得資料（私人 repo award-data）
+        id: data
+        if: steps.claim.outputs.claimed == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.PRIVATE_REPO }}
+          token: ${{ secrets.DATA_TOKEN }}
+          ref: award-data
+          path: data
+
+      - name: 啟動前檢查冷卻與重複排程
+        id: preflight
+        if: steps.claim.outputs.claimed == 'true'
+        working-directory: data
+        env:
+          SCAN_MODE: ${{ inputs.mode }}
+          RUNNER_BATCH_CLAIMED: ${{ steps.claim.outputs.claimed }}
+        run: python ../src/jx_fares/scan_preflight.py
+
+      - name: 安裝套件
+        if: steps.preflight.outputs.scan == 'true' 
+        run: |
+          pip install -q -r src/jx_fares/requirements.txt
+          python -m playwright install --with-deps chromium > /dev/null
+
+      - name: 掃描
+        id: scan
+        if: steps.preflight.outputs.scan == 'true'
+        working-directory: data
+        env:
+          MODE: ${{ inputs.mode }}
+          RUNNER_BATCH_LIMIT: ${{ steps.claim.outputs.limit }}
+          SCAN_PARTITION_REPO: ${{ github.repository }}
+        run: |
+          python ../src/jx_fares/run_scans.py ${MODE:+--force "$MODE"} > scan_log.txt 2>&1 || rc=$?
+          # 公開紀錄只印排程與摘要
+          grep -E '^(台灣時間|上次被擋|\[摘要\]|已跑超過)' scan_log.txt || true
+          exit ${rc:-0}
+
+      - name: 存回私人 repo
+        id: save
+        if: ${{ always() && steps.data.outcome == 'success' && (steps.scan.outcome == 'success' || steps.scan.outcome == 'failure') }}
+        working-directory: data
+        run: |
+          git config user.name "award-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for f in as_awards.json scan_status.json scan_state.json scan_log.txt jx_cash_fares.json jx_cash_fares.md; do
+            [ -f "$f" ] && git add "$f"
+          done
+          if [ -d scan_results ]; then git add -A -- scan_results; fi
+          git commit -q -m "掃描 $(date '+%Y-%m-%d %H:%M')" || { echo "沒有變動"; exit 0; }
+          # 私人 repo 的通知流程也會寫 award-data（不同檔案），衝突時重抓再推
+          for i in 1 2 3 4; do
+            git push -q origin HEAD:award-data && exit 0
+            sleep $((i * 5))
+            if ! git pull -q --rebase origin award-data; then
+              python ../src/jx_fares/reconcile_scan_state.py
+              GIT_EDITOR=true git rebase --continue
+            fi
+          done
+          exit 1
+
+      - name: 通知私人 repo 處理（快查頁、新位子、Telegram）
+        id: notify
+        if: ${{ steps.save.outcome == 'success' && !contains(inputs.mode, 'smoke') }}
+        env:
+          DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+        run: |
+          curl -sS --fail -X POST -H "Authorization: Bearer $DATA_TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$PRIVATE_REPO/dispatches" \
+            -d '{"event_type":"scan-done"}' && echo "已通知"
+
+      - name: 歸還批次（保存失敗則保留領取紀錄）
+        if: ${{ always() && steps.claim.outputs.claimed == 'true' && (steps.save.outcome == 'success' || (steps.scan.outcome == 'skipped' && !cancelled())) }}
+        env:
+          DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+        run: python src/jx_fares/runner_pool.py release
+
+      - name: 保持排程啟用
+        if: ${{ success() && github.event_name == 'schedule' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/scan.yml/enable" && echo "排程保持啟用"
+
+      - name: 失敗時通知私人 repo（傳 Telegram）
+        if: failure()
+        env:
+          DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          FAILURE_STAGE: ${{ steps.save.outcome == 'failure' && 'save' || steps.scan.outcome == 'failure' && 'scan' || steps.notify.outcome == 'failure' && 'dispatch' || 'setup' }}
+        run: |
+          curl -sS -X POST -H "Authorization: Bearer $DATA_TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$PRIVATE_REPO/dispatches" \
+            -d "{\"event_type\":\"scan-failed\",\"client_payload\":{\"url\":\"$RUN_URL\",\"stage\":\"$FAILURE_STAGE\"}}" > /dev/null || true
+
+
+  check:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.PRIVATE_REPO }}
+          ref: main
+          token: ${{ secrets.DATA_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: 驗證分工讀寫（不開瀏覽器、不查航空）
+        env:
+          DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+        run: python jx_fares/runner_pool.py check
