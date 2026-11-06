@@ -1,0 +1,27 @@
+name: 執行器排隊監測
+on:
+  workflow_run:
+    workflows: [掃描]
+    types: [in_progress]
+    branches: [main]
+permissions:
+  actions: write
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: EDDIELI-coder/claude--
+          token: ${{ secrets.DATA_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: 僅處理尚未開始的離線執行器排隊
+        env:
+          EXECUTOR_TOKEN: ${{ github.token }}
+          DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+          WATCH_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: python jx_fares/execution_router.py watch --run-id "$WATCH_RUN_ID"

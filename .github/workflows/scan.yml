@@ -30,6 +30,16 @@ on:
         type: boolean
         default: false
 
+      executor:
+        description: 自動選擇已啟動本機／獨立雲端，否則 GitHub
+        type: choice
+        options: [auto, github]
+        default: auto
+      fallback_run_id:
+        description: 僅排隊監測器使用，驗證原工作未開始
+        type: string
+        default: ''
+
 permissions:
   actions: write
   id-token: write
@@ -42,12 +52,39 @@ env:
   PRIVATE_REPO: EDDIELI-coder/claude--
 
 jobs:
-  scan:
+  route:
     if: github.event_name != 'push'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      labels: ${{ steps.route.outputs.labels }}
+      kind: ${{ steps.route.outputs.kind }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.PRIVATE_REPO }}
+          token: ${{ secrets.DATA_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - id: route
+        env:
+          EXECUTOR_TOKEN: ${{ secrets.EXECUTOR_TOKEN || secrets.DATA_TOKEN }}
+          DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+        run: python jx_fares/execution_router.py route
+
+  scan:
+    needs: route
+    if: github.event_name != 'push'
+    runs-on: ${{ fromJSON(needs.route.outputs.labels) }}
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 65
     env:
       TZ: Asia/Taipei
+      SCAN_EXECUTOR_KIND: ${{ needs.route.outputs.kind }}
       CONTINUATION_ID: ${{ inputs.continuation_id }}
       COOLDOWN_RETRY_UNTIL: ${{ inputs.cooldown_retry_until }}
       HANDOFF_ENABLED: ${{ github.event_name == 'workflow_dispatch' && inputs.human_handoff == true && '1' || '0' }}
@@ -99,7 +136,11 @@ jobs:
         if: steps.preflight.outputs.scan == 'true' 
         run: |
           pip install -q -r src/jx_fares/requirements.txt
-          python -m playwright install --with-deps chromium > /dev/null
+          if [ "$RUNNER_ENVIRONMENT" = "github-hosted" ]; then
+            python -m playwright install --with-deps chromium > /dev/null
+          else
+            python -m playwright install chromium > /dev/null
+          fi
 
       - name: 掃描
         id: scan
