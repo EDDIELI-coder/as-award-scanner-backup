@@ -152,6 +152,8 @@ jobs:
         if: ${{ always() && steps.claim.outputs.claimed == 'true' && (steps.save.outcome == 'success' || (steps.scan.outcome == 'skipped' && !cancelled())) }}
         env:
           DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+          RUNNER_SCAN_OUTCOME: ${{ steps.scan.outcome }}
+          RUNNER_PREFLIGHT_OUTCOME: ${{ steps.preflight.outcome }}
         run: python src/jx_fares/runner_pool.py release
 
       - name: 保持排程啟用
