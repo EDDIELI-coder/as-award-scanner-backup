@@ -84,6 +84,7 @@ jobs:
     timeout-minutes: 65
     env:
       TZ: Asia/Taipei
+      PYTHONUTF8: '1'
       SCAN_EXECUTOR_KIND: ${{ needs.route.outputs.kind }}
       CONTINUATION_ID: ${{ inputs.continuation_id }}
       COOLDOWN_RETRY_UNTIL: ${{ inputs.cooldown_retry_until }}
@@ -98,8 +99,14 @@ jobs:
           persist-credentials: false
 
       - uses: actions/setup-python@v5
+        if: runner.os != 'Windows'
         with:
           python-version: '3.12'
+
+      - name: Select existing Windows Python and Git Bash
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: ./src/jx_fares/tools/Select-WindowsRunnerTools.ps1
 
       - name: 領取共用待查批次
         id: claim
@@ -135,7 +142,7 @@ jobs:
       - name: 安裝套件
         if: steps.preflight.outputs.scan == 'true' 
         run: |
-          pip install -q -r src/jx_fares/requirements.txt
+          python -m pip install -q -r src/jx_fares/requirements.txt
           if [ "$RUNNER_ENVIRONMENT" = "github-hosted" ]; then
             python -m playwright install --with-deps chromium > /dev/null
           else
