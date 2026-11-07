@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: EDDIELI-coder/claude--
-          ref: 8482315a9b10e0cfe754b07d84aa96496f559756
+          ref: 6bae9adae81b5f7cd29bebca592c6fec4562e368
           token: ${{ secrets.DATA_TOKEN }}
           persist-credentials: false
           path: progress-pet-source
@@ -44,7 +44,7 @@ jobs:
             Start-Sleep -Seconds 2
             try {
               $status = Get-Content -LiteralPath $path -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json
-              if ($status.at -ge $started -and $status.visible -eq $true -and $status.version -eq 6) {
+              if ($status.at -ge $started -and $status.visible -eq $true -and $status.version -eq 7) {
                 $process = Get-Process -Id $status.pid -ErrorAction Stop
                 if ($process.ProcessName -eq 'powershell') { $alive = $true; break }
               }
@@ -67,3 +67,63 @@ jobs:
           Get-ScheduledTask -TaskName 'AS-Award-ProgressPet' | Select-Object TaskName, State
           $status | Select-Object version, device, visible, at, hotkey, recalled_at | ConvertTo-Json -Compress
           Write-Host 'PASS: installed widget confirmed visible and refreshing; no airline query or runner restart.'
+      - name: 在真正桌面環境檢查 gh 狀態並點擊助手主線按鈕
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:LOCALAPPDATA 'AsAwardProgressPet'
+          $scriptPath=Join-Path $root 'Test-ActualDesktopClick.ps1'
+          $resultPath=Join-Path $root 'actual-click-result.json'
+          $body=@'
+          $ErrorActionPreference='Stop'
+          $steps=@()
+          function Mark($Stage,$Outcome) { $script:steps+=@{stage=$Stage;outcome=$Outcome} }
+          try {
+            . (Join-Path $PSScriptRoot 'ProgressModel.ps1')
+            . (Join-Path $PSScriptRoot 'ScanLauncher.ps1')
+            foreach ($repo in @('EDDIELI-coder/as-award-scanner','EDDIELI-coder/as-award-scanner-backup')) {
+              $raw=Invoke-PetGh -Arguments @('run','list','--workflow','scan.yml','--repo',$repo,'--limit','100','--json','status')
+              $rows=@($raw | ConvertFrom-Json)
+              Mark ('desktop_read_'+$repo.Split('/')[-1]) 'ok'
+            }
+            Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+            $health=Read-PetJson (Join-Path $PSScriptRoot 'widget-status.json')
+            $condition=[Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::ProcessIdProperty,[int]$health.pid)
+            $window=[Windows.Automation.AutomationElement]::RootElement.FindFirst([Windows.Automation.TreeScope]::Children,$condition)
+            if (!$window) { throw 'widget_window_missing' }
+            $buttonCondition=[Windows.Automation.PropertyCondition]::new([Windows.Automation.AutomationElement]::AutomationIdProperty,'StartPrimary')
+            $button=$window.FindFirst([Windows.Automation.TreeScope]::Descendants,$buttonCondition)
+            if (!$button -or !$button.Current.IsEnabled) { throw 'widget_button_unavailable' }
+            $at=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+            $button.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
+            Mark 'invoke_actual_widget_button' 'ok'
+            $statusPath=Join-Path $PSScriptRoot 'launch-status-primary.json'
+            for ($i=0;$i -lt 45;$i++) {
+              Start-Sleep -Seconds 2
+              $status=Read-PetJson $statusPath
+              if ($status.at -ge $at -and $status.state -in @('requested','waiting_other','needs_verification','github_error','github_timeout','gh_missing','response_parse_error','unknown_scan_status','launcher_error')) { break }
+            }
+            if ($status.at -lt $at) { throw 'no_new_launch_receipt' }
+            Mark 'actual_button_launch_result' $status.state
+          } catch { $steps+=@{stage='failure';type=$_.Exception.GetType().FullName;line=$_.InvocationInfo.ScriptLineNumber} }
+          $steps | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $PSScriptRoot 'actual-click-result.json') -Encoding UTF8
+          '@
+          [IO.File]::WriteAllText($scriptPath,$body,[Text.UTF8Encoding]::new($true))
+          Remove-Item $resultPath -ErrorAction SilentlyContinue
+          $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $exe=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+          $action=New-ScheduledTaskAction -Execute $exe -Argument ('-NoProfile -WindowStyle Hidden -File '+[char]34+$scriptPath+[char]34) -WorkingDirectory $root
+          $principal=New-ScheduledTaskPrincipal -UserId $identity.User.Value -LogonType Interactive -RunLevel Limited
+          $settings=New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 3)
+          Register-ScheduledTask -TaskName 'AS-Award-Pet-ActualClickTest' -Action $action -Principal $principal -Settings $settings -Force | Out-Null
+          try {
+            Start-ScheduledTask -TaskName 'AS-Award-Pet-ActualClickTest'
+            for ($i=0;$i -lt 60;$i++) { Start-Sleep -Seconds 2; if (Test-Path $resultPath) { break } }
+            $results=Get-Content $resultPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            $results | ConvertTo-Json -Depth 4
+            if (@($results | Where-Object {$_.stage -eq 'failure'}).Count -or !@($results | Where-Object {$_.stage -eq 'actual_button_launch_result' -and $_.outcome -in @('requested','waiting_other','needs_verification')}).Count) { throw 'Actual desktop click did not confirm an accepted request.' }
+          } finally {
+            Stop-ScheduledTask -TaskName 'AS-Award-Pet-ActualClickTest' -ErrorAction SilentlyContinue
+            Unregister-ScheduledTask -TaskName 'AS-Award-Pet-ActualClickTest' -Confirm:$false
+            Remove-Item $scriptPath -ErrorAction SilentlyContinue
+          }
