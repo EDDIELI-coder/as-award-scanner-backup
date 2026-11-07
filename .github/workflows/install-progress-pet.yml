@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: EDDIELI-coder/claude--
-          ref: fd4f16dbe6975d98178ae2c89d4fd4912101e3da
+          ref: c56c2f3e7a29466dac58289cedbbb7c1c02c97bc
           token: ${{ secrets.DATA_TOKEN }}
           persist-credentials: false
           path: progress-pet-source
@@ -32,7 +32,7 @@ jobs:
             Start-Sleep -Seconds 2
             try {
               $status = Get-Content -LiteralPath $path -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json
-              if ($status.at -ge $started -and $status.visible -eq $true -and $status.version -eq 2) {
+              if ($status.at -ge $started -and $status.visible -eq $true -and $status.version -eq 3) {
                 $process = Get-Process -Id $status.pid -ErrorAction Stop
                 if ($process.ProcessName -eq 'powershell') { $alive = $true; break }
               }
