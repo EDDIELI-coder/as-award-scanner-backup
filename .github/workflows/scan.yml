@@ -10,7 +10,7 @@ on:
     branches: [main]
     paths: ['.github/workflows/scan.yml']
   schedule:
-    - cron: '17 2-23/4 * * *'   # 備用執行器；與主執行器錯開兩小時
+    - cron: '17 */4 * * *'   # 備用執行器；與主執行器同時段平行掃描
   workflow_dispatch:
     inputs:
       mode:
@@ -50,6 +50,7 @@ concurrency:
 
 env:
   PRIVATE_REPO: EDDIELI-coder/claude--
+  PARALLEL_SCAN: '1'
 
 jobs:
   route:
@@ -130,6 +131,11 @@ jobs:
           ref: award-data
           path: data
 
+      - name: 還原這條線自己的掃描斷點
+        if: steps.claim.outputs.parallel == 'true'
+        working-directory: data
+        run: python ../src/jx_fares/parallel_store.py prepare --repo "$GITHUB_REPOSITORY"
+
       - name: 啟動前檢查冷卻與重複排程
         id: preflight
         if: steps.claim.outputs.claimed == 'true'
@@ -170,10 +176,22 @@ jobs:
         run: |
           git config user.name "award-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ "${{ steps.claim.outputs.parallel }}" = true ]; then
+            python ../src/jx_fares/parallel_store.py stage --repo "$GITHUB_REPOSITORY"
+            case "$GITHUB_REPOSITORY" in
+              EDDIELI-coder/as-award-scanner) worker=primary ;;
+              EDDIELI-coder/as-award-scanner-backup) worker=backup ;;
+              *) exit 1 ;;
+            esac
+            git add -- "worker_data/$worker"
+            git restore --worktree -- .
+            git clean -fd -- scan_results
+          else
           for f in as_awards.json scan_status.json scan_state.json scan_log.txt jx_cash_fares.json jx_cash_fares.md; do
             [ -f "$f" ] && git add "$f"
           done
           if [ -d scan_results ]; then git add -A -- scan_results; fi
+          fi
           git commit -q -m "掃描 $(date '+%Y-%m-%d %H:%M')" || { echo "沒有變動"; exit 0; }
           # 私人 repo 的通知流程也會寫 award-data（不同檔案），衝突時重抓再推
           for i in 1 2 3 4; do
@@ -240,3 +258,4 @@ jobs:
         env:
           DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
         run: python jx_fares/runner_pool.py check
+
