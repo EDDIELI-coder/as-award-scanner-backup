@@ -1,0 +1,44 @@
+name: 安裝桌面哩程小飛行員（不查票）
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/install-progress-pet.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  install:
+    runs-on: [self-hosted, Windows, X64, as-home]
+    timeout-minutes: 5
+    steps:
+      - name: 取得已測試的桌面元件
+        uses: actions/checkout@v4
+        with:
+          repository: EDDIELI-coder/claude--
+          ref: 56332f9d931196890e4bedf3f223281505e79fba
+          token: ${{ secrets.DATA_TOKEN }}
+          persist-credentials: false
+          path: progress-pet-source
+      - name: 安裝這台電腦的進度元件，不動掃描與瀏覽器
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ./progress-pet-source/jx_fares/desktop_pet/Test-ProgressPet.ps1
+          & ./progress-pet-source/jx_fares/desktop_pet/Install-ProgressPet.ps1 -Device home
+          $path = Join-Path $env:LOCALAPPDATA 'AsAwardProgressPet\widget-status.json'
+          $started = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+          $alive = $false
+          for ($attempt = 0; $attempt -lt 10; $attempt++) {
+            Start-Sleep -Seconds 2
+            try {
+              $status = Get-Content -LiteralPath $path -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json
+              if ($status.at -ge $started -and $status.visible -eq $true) {
+                $process = Get-Process -Id $status.pid -ErrorAction Stop
+                if ($process.ProcessName -eq 'powershell') { $alive = $true; break }
+              }
+            } catch { }
+          }
+          if (!$alive) { throw 'Widget did not confirm a visible, live UI. Scanner unchanged.' }
+          Get-ScheduledTask -TaskName 'AS-Award-ProgressPet' | Select-Object TaskName, State
+          $status | Select-Object version, device, visible, at | ConvertTo-Json -Compress
+          Write-Host 'PASS: installed widget confirmed visible and refreshing; no airline query or runner restart.'
