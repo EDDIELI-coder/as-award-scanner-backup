@@ -37,8 +37,14 @@ jobs:
             Mark 'queue_decision' $decision
             $gh=Get-Command gh.exe -ErrorAction Stop
             Mark 'find_gh' 'ok'
+            try { $info=[Diagnostics.ProcessStartInfo]::new(); $null=$info.EnvironmentVariables; Mark 'read_process_environment' 'ok' } catch { Mark 'read_process_environment' $_.Exception.GetType().FullName }
+            $source=Get-Content (Join-Path $PSScriptRoot 'ScanLauncher.ps1') -Raw -Encoding UTF8
+            $source=$source.Replace("$"+"info.EnvironmentVariables['GH_PROMPT_DISABLED']='1'",'')
+            Invoke-Expression $source
             foreach ($repo in @('EDDIELI-coder/as-award-scanner','EDDIELI-coder/as-award-scanner-backup')) {
-              $data=Invoke-PetGh -Arguments @('api',"repos/$repo/actions/workflows/scan.yml/runs?per_page=100") | ConvertFrom-Json
+              $raw=Invoke-PetGh -Arguments @('api',"repos/$repo/actions/workflows/scan.yml/runs?per_page=100")
+              Mark 'gh_process_without_environment_edit' 'ok'
+              $data=$raw | ConvertFrom-Json
               if (!$data.PSObject.Properties['workflow_runs']) { throw 'unknown_scan_status' }
               Mark ('read_'+$repo.Split('/')[-1]) 'ok'
             }
