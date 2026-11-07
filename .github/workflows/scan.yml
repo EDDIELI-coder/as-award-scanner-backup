@@ -33,7 +33,7 @@ on:
       executor:
         description: 自動選擇已啟動本機／獨立雲端，否則 GitHub
         type: choice
-        options: [auto, github]
+        options: [auto, github, home, office]
         default: auto
       fallback_run_id:
         description: 僅排隊監測器使用，驗證原工作未開始
