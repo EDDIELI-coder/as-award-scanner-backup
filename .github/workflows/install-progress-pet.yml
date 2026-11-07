@@ -24,6 +24,18 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           & ./progress-pet-source/jx_fares/desktop_pet/Test-ProgressPet.ps1
+          $oldStatusPath = Join-Path $env:LOCALAPPDATA 'AsAwardProgressPet\widget-status.json'
+          $expectedScript = Join-Path $env:LOCALAPPDATA 'AsAwardProgressPet\Start-ProgressPet.ps1'
+          Stop-ScheduledTask -TaskName 'AS-Award-ProgressPet' -ErrorAction SilentlyContinue
+          if (Test-Path -LiteralPath $oldStatusPath) {
+            $oldStatus = Get-Content -LiteralPath $oldStatusPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            $oldProcess = Get-CimInstance Win32_Process -Filter ("ProcessId = " + [int]$oldStatus.pid)
+            if ($oldProcess -and $oldProcess.Name -eq 'powershell.exe' -and $oldProcess.CommandLine.IndexOf($expectedScript, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
+              Stop-Process -Id ([int]$oldStatus.pid) -ErrorAction SilentlyContinue
+              Write-Host 'Stopped the previous verified widget process only.'
+            }
+          }
+          Start-Sleep -Seconds 2
           & ./progress-pet-source/jx_fares/desktop_pet/Install-ProgressPet.ps1 -Device home
           $path = Join-Path $env:LOCALAPPDATA 'AsAwardProgressPet\widget-status.json'
           $started = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
@@ -38,7 +50,7 @@ jobs:
               }
             } catch { }
           }
-          if (!$alive) { throw 'Widget did not confirm a visible, live UI. Scanner unchanged.' }
+          if (!$alive) { Get-Content -LiteralPath $path -Raw -Encoding UTF8; Get-ScheduledTask -TaskName 'AS-Award-ProgressPet' | Select-Object TaskName, State; throw 'Widget did not confirm a visible, live UI. Scanner unchanged.' }
           $originalPid = $status.pid
           $recallStarted = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
           $launcher = Join-Path $env:LOCALAPPDATA 'AsAwardProgressPet\Start-ProgressPet.ps1'
