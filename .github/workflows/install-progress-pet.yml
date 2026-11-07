@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: EDDIELI-coder/claude--
-          ref: 56332f9d931196890e4bedf3f223281505e79fba
+          ref: fd4f16dbe6975d98178ae2c89d4fd4912101e3da
           token: ${{ secrets.DATA_TOKEN }}
           persist-credentials: false
           path: progress-pet-source
@@ -32,13 +32,26 @@ jobs:
             Start-Sleep -Seconds 2
             try {
               $status = Get-Content -LiteralPath $path -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json
-              if ($status.at -ge $started -and $status.visible -eq $true) {
+              if ($status.at -ge $started -and $status.visible -eq $true -and $status.version -eq 2) {
                 $process = Get-Process -Id $status.pid -ErrorAction Stop
                 if ($process.ProcessName -eq 'powershell') { $alive = $true; break }
               }
             } catch { }
           }
           if (!$alive) { throw 'Widget did not confirm a visible, live UI. Scanner unchanged.' }
+          $originalPid = $status.pid
+          $recallStarted = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+          $launcher = Join-Path $env:LOCALAPPDATA 'AsAwardProgressPet\Start-ProgressPet.ps1'
+          & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -STA -WindowStyle Hidden -File $launcher -Device home
+          if ($LASTEXITCODE -ne 0) { throw 'Shortcut recall failed.' }
+          $recalled = $false
+          for ($attempt = 0; $attempt -lt 10; $attempt++) {
+            Start-Sleep -Seconds 2
+            $status = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ($status.recalled_at -ge $recallStarted -and $status.visible -and $status.pid -eq $originalPid) { $recalled = $true; break }
+          }
+          if (!$recalled) { throw 'Existing widget did not confirm recall.' }
+          Write-Host 'PASS: second launch recalled the same desktop widget process.'
           Get-ScheduledTask -TaskName 'AS-Award-ProgressPet' | Select-Object TaskName, State
-          $status | Select-Object version, device, visible, at | ConvertTo-Json -Compress
+          $status | Select-Object version, device, visible, at, hotkey, recalled_at | ConvertTo-Json -Compress
           Write-Host 'PASS: installed widget confirmed visible and refreshing; no airline query or runner restart.'
