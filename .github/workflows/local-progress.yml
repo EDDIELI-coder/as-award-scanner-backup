@@ -1,0 +1,22 @@
+name: 只讀家裡本機進度（不查票）
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/local-progress.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  read:
+    runs-on: [self-hosted, Windows, X64, as-home]
+    timeout-minutes: 2
+    steps:
+      - name: 讀取主執行器已產生的進度，不修改執行中的掃描
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path = Join-Path $env:LOCALAPPDATA 'AsAwardRunner\home\primary\_work\as-award-scanner\as-award-scanner\data\scan_live.json'
+          if (!(Test-Path -LiteralPath $path)) { throw 'Local progress file not available; no status inferred.' }
+          $snapshot = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
+          $snapshot | Select-Object state, stage, mode, event_at, queries_used, queries_limit, successful_reads, calendar_done, calendar_total, details_done, details_total, verification_method, stop_reason |
+            ConvertTo-Json -Compress
