@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: EDDIELI-coder/claude--
-          ref: c56c2f3e7a29466dac58289cedbbb7c1c02c97bc
+          ref: a38a832b324357e19f89ef9bfd48ba4691ae5196
           token: ${{ secrets.DATA_TOKEN }}
           persist-credentials: false
           path: progress-pet-source
@@ -44,7 +44,7 @@ jobs:
             Start-Sleep -Seconds 2
             try {
               $status = Get-Content -LiteralPath $path -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json
-              if ($status.at -ge $started -and $status.visible -eq $true -and $status.version -eq 3) {
+              if ($status.at -ge $started -and $status.visible -eq $true -and $status.version -eq 4) {
                 $process = Get-Process -Id $status.pid -ErrorAction Stop
                 if ($process.ProcessName -eq 'powershell') { $alive = $true; break }
               }
@@ -67,3 +67,13 @@ jobs:
           Get-ScheduledTask -TaskName 'AS-Award-ProgressPet' | Select-Object TaskName, State
           $status | Select-Object version, device, visible, at, hotkey, recalled_at | ConvertTo-Json -Compress
           Write-Host 'PASS: installed widget confirmed visible and refreshing; no airline query or runner restart.'
+      - name: 主人要求開始主線本機人工協助掃描
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $launcher = Join-Path $env:LOCALAPPDATA 'AsAwardProgressPet\Start-DesktopScan.ps1'
+          & $launcher -Device home -Partition primary
+          $path = Join-Path $env:LOCALAPPDATA 'AsAwardProgressPet\launch-status.json'
+          $status = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
+          $status | Select-Object state, partition, at | ConvertTo-Json -Compress
+          if ($status.state -notin @('requested','already_active')) { throw 'Local scan request was not confirmed.' }
