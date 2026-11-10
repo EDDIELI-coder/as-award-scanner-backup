@@ -22,7 +22,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: EDDIELI-coder/claude--
-          ref: 9f0f011a5db2be94431c4b0b49053c8485fd45fb
+          ref: ecafd84f521cdbe7ec6c13b82d953254012e1a2a
           token: ${{ secrets.DATA_TOKEN }}
           path: recovery-source
           persist-credentials: false
