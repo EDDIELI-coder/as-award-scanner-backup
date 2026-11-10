@@ -39,3 +39,17 @@ jobs:
             [pscustomobject]@{pid=$_.ProcessId;parent=$_.ParentProcessId;name=$_.Name;partition=$part;scanner=[bool]($_.CommandLine -match 'run_scans\.py|fetch_as_awards\.py');created=$_.CreationDate}
           } | ConvertTo-Json -Compress
           git -C $data status --porcelain --untracked-files=no
+
+          $rows=@(Get-CimInstance Win32_Process)
+          $map=@{};foreach ($row in $rows) { $map[[int]$row.ProcessId]=$row }
+          foreach ($scanner in $rows | Where-Object {$_.Name -eq 'python.exe' -and $_.CommandLine -match '(run_scans|fetch_as_awards)\.py'}) {
+            $node=$scanner;$seen=@{}
+            for ($depth=0;$depth -lt 16 -and $node;$depth++) {
+              if ($seen.ContainsKey([int]$node.ProcessId)) { break };$seen[[int]$node.ProcessId]=$true
+              $identity=([string]$node.ExecutablePath)+' '+([string]$node.CommandLine)
+              $paths=@([regex]::Matches($identity,'(?i)[A-Z]:[^"\r\n]*?AsAwardRunner[\\/][^"\s]*') | ForEach-Object {$_.Value})
+              $part=if ($identity -match '(?i)AsAwardRunner[\\/]\w+[\\/](primary|backup)[\\/]') {$Matches[1]} else {'unknown'}
+              [pscustomobject]@{scanner=$scanner.ProcessId;depth=$depth;pid=$node.ProcessId;parent=$node.ParentProcessId;name=$node.Name;executable=$node.ExecutablePath;runner_paths=$paths;owner=$part;created=$node.CreationDate} | ConvertTo-Json -Compress
+              $node=$map[[int]$node.ParentProcessId]
+            }
+          }
