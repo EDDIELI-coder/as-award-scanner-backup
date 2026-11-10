@@ -38,7 +38,6 @@ jobs:
       - name: Install widget v11 and enable backup continuous controller
         shell: powershell
         run: |
-          param()
           $ErrorActionPreference='Stop'
           $root=Join-Path $env:LOCALAPPDATA 'AsAwardProgressPet'
           $taskName='AS-Award-Continuous-home-backup'
