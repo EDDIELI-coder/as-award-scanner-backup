@@ -1,0 +1,41 @@
+name: 只讀檢查備線斷點與控制器
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/inspect-backup-state.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, X64, as-home]
+    timeout-minutes: 3
+    steps:
+      - name: 只讀本機控制器收據、斷點與相關程序
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $pet=Join-Path $env:LOCALAPPDATA 'AsAwardProgressPet'
+          $data=Join-Path $env:LOCALAPPDATA 'AsAwardRunner\home\backup\_work\as-award-scanner-backup\as-award-scanner-backup\data'
+          foreach ($part in @('primary','backup')) {
+            $file=Join-Path $pet "launch-status-$part.json"
+            if (Test-Path $file) { Get-Content $file -Raw -Encoding UTF8 | ConvertFrom-Json | Select-Object partition,state,enabled,run_id,attempt,batches,owned,at,error_code | ConvertTo-Json -Compress }
+          }
+          foreach ($name in @('scan_status.json','scan_live.json')) {
+            $file=Join-Path $data $name
+            if (Test-Path $file) {
+              $value=Get-Content $file -Raw -Encoding UTF8 | ConvertFrom-Json
+              [pscustomobject]@{file=$name;identity=$value.github_run_id;attempt=$value.github_run_attempt;repo=$value.runner_repo;state=$value.state;stage=$value.stage;reads=$value.successful_reads;stop=$value.stop_reason;finished=$value.finished_at;at=$value.event_at} | ConvertTo-Json -Compress
+            }
+          }
+          foreach ($name in @('as_awards.json','scan_state.json','scan_status.json','scan_live.json')) {
+            $file=Join-Path $data $name
+            if (Test-Path $file) { Get-Item $file | Select-Object Name,Length,LastWriteTimeUtc | ConvertTo-Json -Compress }
+          }
+          Get-CimInstance Win32_Process | Where-Object {
+            $_.Name -in @('python.exe','powershell.exe','pythonw.exe','node.exe') -and $_.CommandLine -match 'run_scans\.py|fetch_as_awards\.py|Start-DesktopScan\.ps1'
+          } | ForEach-Object {
+            $part=if ($_.CommandLine -match 'as-award-scanner-backup|-Partition backup') {'backup'} elseif ($_.CommandLine -match 'as-award-scanner|-Partition primary') {'primary'} else {'unknown'}
+            [pscustomobject]@{pid=$_.ProcessId;parent=$_.ParentProcessId;name=$_.Name;partition=$part;scanner=[bool]($_.CommandLine -match 'run_scans\.py|fetch_as_awards\.py');created=$_.CreationDate}
+          } | ConvertTo-Json -Compress
+          git -C $data status --porcelain --untracked-files=no
