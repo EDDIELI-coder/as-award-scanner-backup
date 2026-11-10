@@ -109,6 +109,14 @@ jobs:
         shell: powershell
         run: ./src/jx_fares/tools/Select-WindowsRunnerTools.ps1
 
+      - name: 恢復已中斷的本機斷點（確認舊工作結束及無殘留程序）
+        if: runner.os == 'Windows' && (needs.route.outputs.kind == 'home' || needs.route.outputs.kind == 'office')
+        shell: powershell
+        env:
+          DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+          RECOVERY_RUN_TOKEN: ${{ github.token }}
+        run: ./src/jx_fares/tools/Recover-LocalCheckpoint.ps1 -Device '${{ needs.route.outputs.kind }}'
+
       - name: 領取共用待查批次
         id: claim
         env:
@@ -146,7 +154,7 @@ jobs:
         run: python ../src/jx_fares/scan_preflight.py
 
       - name: 安裝套件
-        if: steps.preflight.outputs.scan == 'true' 
+        if: steps.preflight.outputs.scan == 'true'
         run: |
           python -m pip install -q -r src/jx_fares/requirements.txt
           if [ "$RUNNER_ENVIRONMENT" = "github-hosted" ]; then
