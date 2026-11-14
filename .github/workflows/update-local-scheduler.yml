@@ -1,5 +1,7 @@
 name: Update local continuous scheduler
 on:
+  pull_request:
+    paths: ['.github/scripts/**', '.github/workflows/update-local-scheduler.yml']
   push:
     branches: [main]
     paths: ['.github/workflows/update-local-scheduler.yml', '.github/scripts/Update-ContinuousPet.ps1']
@@ -25,7 +27,9 @@ jobs:
           [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $env:GITHUB_WORKSPACE '.github/scripts/Update-ContinuousPet.ps1'),[ref]$tokens,[ref]$errors) | Out-Null
           if ($errors.Count) { throw ($errors | Out-String) }
           Write-Host 'Native installer syntax passed.'
+          ./.github/scripts/Test-ContinuousPetRecovery.ps1
   update:
+    if: github.event_name != 'pull_request'
     needs: validate
     runs-on: [self-hosted, Windows, X64, "${{ format('as-{0}', inputs.device || 'home') }}"]
     timeout-minutes: 6

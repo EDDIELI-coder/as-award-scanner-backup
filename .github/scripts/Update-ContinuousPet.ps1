@@ -1,5 +1,20 @@
-param([ValidateSet('home','office')][string]$Device='home')
+param([ValidateSet('home','office')][string]$Device='home',[switch]$TestOnly)
 $ErrorActionPreference='Stop'
+function Test-SavedControllerRecovery($Previous,$Summary,$Run,[string]$Repo,[string]$Device) {
+  if (!$Previous -or $Previous.state -notin @('scan_failed','batch_not_started')) { return $false }
+  if ($Summary.runner_repo -ne $Repo -or $Summary.executor_kind -ne $Device -or $Summary.state -notin @('partial','complete') -or $Summary.blocked) { return $false }
+  if ([string]$Summary.github_run_id -notmatch '^\d+$' -or [string]$Previous.run_id -notmatch '^\d+$' -or [long]$Summary.github_run_id -le [long]$Previous.run_id) { return $false }
+  if ($Run.status -ne 'completed' -or $Run.conclusion -ne 'success' -or [string]$Run.id -ne [string]$Summary.github_run_id -or [string]$Run.run_attempt -ne [string]$Summary.github_run_attempt) { return $false }
+  $reads=0
+  foreach ($mode in $Summary.modes.PSObject.Properties) {
+    $s=$mode.Value
+    if ($s.blocked -or $s.process_error -or $s.pages_err -or $s.details_fail -or $s.errors.PSObject.Properties.Count -or $s.retry_errors.PSObject.Properties.Count) { return $false }
+    $reads += [math]::Max(0,[int]$s.pages_ok-[int]$s.pages_cached)+[int]$s.details_ok
+  }
+  return $reads -gt 0
+}
+
+if ($TestOnly) { return }
 $root=Join-Path $env:LOCALAPPDATA 'AsAwardProgressPet'
 $source=Join-Path $env:GITHUB_WORKSPACE 'scheduler-source\jx_fares\desktop_pet'
 $receipts=@{};$enable=@{}
@@ -13,6 +28,23 @@ foreach ($part in @('primary','backup')) {
   }
   if ($status.state -eq 'requesting') { throw 'Dispatch is still being confirmed; controller update withheld.' }
   Get-ScheduledTask -TaskName "AS-Award-Continuous-$Device-$part" -ErrorAction Stop | Out-Null
+  if ($status.state -in @('scan_failed','batch_not_started')) {
+    $repo=if ($part -eq 'primary') {'EDDIELI-coder/as-award-scanner'} else {'EDDIELI-coder/as-award-scanner-backup'}
+    $env:GH_PROMPT_DISABLED='1'
+    $encoded=& gh.exe api "repos/EDDIELI-coder/claude--/contents/worker_data/$part/scan_status.json?ref=award-data" --jq '.content'
+    if ($LASTEXITCODE -ne 0) { throw 'Saved result could not be checked; stopped controller retained.' }
+    $saved=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(($encoded -join ''))) | ConvertFrom-Json
+    if ([string]$saved.github_run_id -match '^\d+$') {
+      $raw=& gh.exe api "repos/$repo/actions/runs/$($saved.github_run_id)" --jq '{id:.id,run_attempt:.run_attempt,status:.status,conclusion:.conclusion}'
+      if ($LASTEXITCODE -ne 0) { throw 'Result workflow could not be checked; stopped controller retained.' }
+      $finished=$raw | ConvertFrom-Json
+      if (Test-SavedControllerRecovery $status $saved $finished $repo $Device) {
+        $status.state='saving_result';$status.enabled=$true
+        $status.run_id=[string]$saved.github_run_id;$status.attempt=[int]$saved.github_run_attempt
+        Write-Host "[controller] $part recovered from a newer confirmed clean saved batch"
+      }
+    }
+  }
   $receipts[$part]=$status
   $enable[$part]=!($status.state -in @('needs_verification','scan_failed','dispatch_unconfirmed','batch_not_started'))
 }
