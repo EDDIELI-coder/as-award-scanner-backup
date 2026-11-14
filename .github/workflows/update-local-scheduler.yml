@@ -25,6 +25,7 @@ jobs:
           [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $env:GITHUB_WORKSPACE '.github/scripts/Update-ContinuousPet.ps1'),[ref]$tokens,[ref]$errors) | Out-Null
           if ($errors.Count) { throw ($errors | Out-String) }
           Write-Host 'Native installer syntax passed.'
+          ./.github/scripts/Test-ContinuousPetRecovery.ps1
   update:
     needs: validate
     runs-on: [self-hosted, Windows, X64, "${{ format('as-{0}', inputs.device || 'home') }}"]
