@@ -2,7 +2,7 @@ $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'Update-ContinuousPet.ps1') -TestOnly
 $repo='EDDIELI-coder/as-award-scanner'
 $old=[pscustomobject]@{state='scan_failed';run_id='10'}
-$s=[pscustomobject]@{runner_repo=$repo;executor_kind='home';state='partial';github_run_id='11';github_run_attempt='1';blocked=$null;modes=[pscustomobject]@{daily=[pscustomobject]@{pages_ok=4;pages_cached=0;details_ok=0;errors=[pscustomobject]@{};retry_errors=[pscustomobject]@{}}}}
+$s=[pscustomobject]@{runner_repo=$repo;executor_kind='home';state='partial';github_run_id='11';github_run_attempt='1';blocked=$null;modes=[pscustomobject]@{daily=[pscustomobject]@{pages_ok=4;pages_cached=0;details_ok=0;details_fail=0;errors=[pscustomobject]@{};retry_errors=[pscustomobject]@{}}}}
 $r=[pscustomobject]@{id='11';run_attempt=1;status='completed';conclusion='success'}
 if (!(Test-SavedControllerRecovery $old $s $r $repo 'home')) {throw 'A newer clean saved native batch should recover an old failure.'}
 $r.conclusion='failure'
