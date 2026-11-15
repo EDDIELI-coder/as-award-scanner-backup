@@ -3,7 +3,7 @@ $ErrorActionPreference='Stop'
 $root=Join-Path $env:LOCALAPPDATA 'AsAwardProgressPet'
 $source=Join-Path $env:GITHUB_WORKSPACE 'backlog-source\jx_fares\desktop_pet'
 . (Join-Path $source 'ProgressModel.ps1')
-. (Join-Path $root 'ScanLauncher.ps1')
+. (Join-Path $source 'ScanLauncher.ps1')
 . (Join-Path $source 'ContinuousScan.ps1')
 $receipts=@{};$enabled=@{}
 foreach ($part in @('primary','backup')) {
@@ -72,7 +72,7 @@ if ([int]$old.pid -gt 0) {
         Stop-Process -Id $row.ProcessId
     }
 }
-foreach ($name in @('Start-ProgressPet.ps1','Pet.xaml','ProgressModel.ps1','BacklogView.ps1','ContinuousScan.ps1','Start-DesktopScan.ps1')) {
+foreach ($name in @('Start-ProgressPet.ps1','Pet.xaml','ProgressModel.ps1','ScanLauncher.ps1','BacklogView.ps1','ContinuousScan.ps1','Start-DesktopScan.ps1')) {
     $body=Get-Content (Join-Path $source $name) -Raw -Encoding UTF8
     [IO.File]::WriteAllText((Join-Path $root $name),$body,[Text.UTF8Encoding]::new($true))
 }
@@ -98,13 +98,14 @@ $ready=$false
 for ($i=0;$i -lt 30;$i++) {
     Start-Sleep -Seconds 1
     $health=Read-PetJson $healthPath
-    if ($health.version -eq 15 -and $health.tray_visible -and $health.at -ge $started) {$ready=$true;break}
+    if ($health.version -eq 16 -and $health.tray_visible -and $health.at -ge $started) {$ready=$true;break}
 }
-if (!$ready) {throw 'Widget v15 did not report a fresh heartbeat.'}
+if (!$ready) {throw 'Widget v16 did not report a fresh heartbeat.'}
+Start-Sleep -Seconds 20
 Write-Host "[widget] version=$($health.version) visible=$($health.visible) hidden=$($health.hidden) tray=$($health.tray_visible)"
 foreach ($part in @('primary','backup')) {
     $receipt=Read-PetJson (Join-Path $root "launch-status-$part.json")
-    Write-Host "[after] $part state=$($receipt.state) enabled=$($receipt.enabled) error=$($receipt.error_code) run=$($receipt.run_id) at=$($receipt.at)"
+    Write-Host "[after] $part state=$($receipt.state) enabled=$($receipt.enabled) batches=$($receipt.batches) error=$($receipt.error_code) location=$($receipt.error_location) run=$($receipt.run_id) at=$($receipt.at)"
     $repo=if ($part -eq 'primary') {'as-award-scanner'} else {'as-award-scanner-backup'}
     $data=Join-Path $env:LOCALAPPDATA "AsAwardRunner\$Device\$part\_work\$repo\$repo\data"
     $summary=Read-PetJson (Join-Path $data 'scan_status.json')
