@@ -34,7 +34,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: EDDIELI-coder/claude--
-          ref: 931d8ae35d5d366ab40a799566c957dd8edfe717
+          ref: 52f839d9ab12813971835962c753b8f6b632225a
           token: ${{ secrets.DATA_TOKEN }}
           path: backlog-source
           persist-credentials: false

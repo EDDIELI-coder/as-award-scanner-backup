@@ -27,5 +27,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          path: continuation-diagnostic
       - shell: powershell
-        run: ./.github/scripts/Test-DesktopContinuation.ps1
+        run: ./continuation-diagnostic/.github/scripts/Test-DesktopContinuation.ps1
