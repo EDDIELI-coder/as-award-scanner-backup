@@ -3,15 +3,47 @@ $ErrorActionPreference='Stop'
 $root=Join-Path $env:LOCALAPPDATA 'AsAwardProgressPet'
 $source=Join-Path $env:GITHUB_WORKSPACE 'backlog-source\jx_fares\desktop_pet'
 . (Join-Path $source 'ProgressModel.ps1')
+. (Join-Path $root 'ScanLauncher.ps1')
+. (Join-Path $source 'ContinuousScan.ps1')
 $receipts=@{};$enabled=@{}
 foreach ($part in @('primary','backup')) {
     $task=Get-ScheduledTask -TaskName "AS-Award-Continuous-$Device-$part" -ErrorAction Stop
     if (!@($task.Triggers | Where-Object {$_.CimClass.CimClassName -eq 'MSFT_TaskLogonTrigger'}).Count) {throw 'Expected login trigger missing; no changes made.'}
     $receipt=Read-PetJson (Join-Path $root "launch-status-$part.json")
     if ($receipt.state -eq 'requesting') {throw 'A dispatch is being confirmed. Retry maintenance after it settles.'}
+    if ($receipt.state -eq 'controller_error' -and $receipt.error_code -eq 'metadata_error' -and $receipt.run_id -match '^\d+$') {
+        $repo=Get-PetControllerRepo $part
+        $run=Get-PetControllerRun $repo ([string]$receipt.run_id)
+        $saved=Get-PetControllerSummary $repo $part
+        $decision=Get-PetContinuationDecision $saved $repo ([string]$receipt.run_id) ([int]$receipt.attempt) $run.conclusion
+        if ($run.status -eq 'completed' -and [int]$run.attempt -eq [int]$receipt.attempt -and $saved.executor_kind -eq $Device -and $decision -in @('continue','idle_wait')) {
+            $receipt.state='saving_result';$receipt.enabled=$true;$receipt.error_code=''
+            Write-Host "[recovered-metadata] $part exact run/attempt has clean saved reads; resume original identity"
+        }
+    }
     $receipts[$part]=$receipt
     $enabled[$part]=($receipt -and $receipt.state -in @('running_continuous','waiting_verification','saving_result','requested','next_batch','metadata_retry','idle_wait','idle_no_reads','stopped_continuous'))
     Write-Host "[before] $part task=$($task.State) state=$($receipt.state) enabled=$($receipt.enabled) error=$($receipt.error_code) run=$($receipt.run_id) at=$($receipt.at)"
+}
+# Exercise the real continuation loop with metadata only and an isolated receipt.
+# Stop before a next dispatch; never call an airline or mutate the installed receipts.
+function Start-PetControllerBatch($Device,$Partition) {throw 'diagnostic_dispatch_withheld'}
+foreach ($part in @('primary','backup')) {
+    $repo=Get-PetControllerRepo $part
+    $saved=Get-PetControllerSummary $repo $part
+    if ($saved.github_run_id -notmatch '^\d+$') {continue}
+    $testRoot=Join-Path $env:TEMP ('as-controller-check-'+[guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $testRoot | Out-Null
+    try {
+        New-Item -ItemType File -Path (Join-Path $testRoot "continuous-enabled-$part") | Out-Null
+        Set-PetContinuousStatus $testRoot $part 'saving_result' $true ([string]$saved.github_run_id) ([int]$saved.github_run_attempt) 0 $true
+        $stopProbe={param($Seconds)
+            New-Item -ItemType File -Path (Join-Path $testRoot "stop-continuous-$part") -Force | Out-Null
+        }
+        Invoke-PetContinuousScan $testRoot $Device $part $stopProbe
+        $result=Read-PetJson (Join-Path $testRoot "launch-status-$part.json")
+        Write-Host "[loop-check] $part state=$($result.state) batches=$($result.batches) error=$($result.error_code) location=$($result.error_location)"
+    } finally {Remove-Item $testRoot -Recurse -Force -ErrorAction SilentlyContinue}
 }
 # Only metadata controllers are stopped. GitHub jobs, scan Python and Chrome remain alive.
 foreach ($part in @('primary','backup')) {Stop-ScheduledTask -TaskName "AS-Award-Continuous-$Device-$part"}
@@ -66,9 +98,9 @@ $ready=$false
 for ($i=0;$i -lt 30;$i++) {
     Start-Sleep -Seconds 1
     $health=Read-PetJson $healthPath
-    if ($health.version -eq 14 -and $health.tray_visible -and $health.at -ge $started) {$ready=$true;break}
+    if ($health.version -eq 15 -and $health.tray_visible -and $health.at -ge $started) {$ready=$true;break}
 }
-if (!$ready) {throw 'Widget v14 did not report a fresh heartbeat.'}
+if (!$ready) {throw 'Widget v15 did not report a fresh heartbeat.'}
 Write-Host "[widget] version=$($health.version) visible=$($health.visible) hidden=$($health.hidden) tray=$($health.tray_visible)"
 foreach ($part in @('primary','backup')) {
     $receipt=Read-PetJson (Join-Path $root "launch-status-$part.json")
