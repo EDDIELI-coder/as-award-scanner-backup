@@ -5,6 +5,7 @@ $root=Join-Path $env:LOCALAPPDATA 'AsAwardProgressPet'
 . (Join-Path $root 'ContinuousScan.ps1')
 foreach ($part in @('primary','backup')) {
     $receipt=Read-PetJson (Join-Path $root "launch-status-$part.json")
+    Write-Host "[receipt] $part state=$($receipt.state) error=$($receipt.error_code) location=$($receipt.error_location)"
     $repo=Get-PetControllerRepo $part
     $phase='runs'
     try {
