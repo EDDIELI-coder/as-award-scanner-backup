@@ -1,0 +1,63 @@
+name: 恢復已結束的批次占用
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/recover-completed-lease.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: write
+concurrency:
+  group: recover-completed-lease
+  cancel-in-progress: false
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: EDDIELI-coder/claude--
+          ref: 154b0651aea4eb007631cd14997f4d8d7d3d0d6d
+          token: ${{ secrets.DATA_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: 核對舊工作並恢復正常排程
+        env:
+          DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+          RUNNER_POOL_TOKEN: ${{ github.token }}
+        run: |
+          PYTHONPATH=jx_fares python - <<'PY'
+          import os, time
+          from runner_pool import API, owner, retire_completed, transact
+          identity = owner()
+          data = API(os.environ['DATA_TOKEN'])
+          runs = API(os.environ['RUNNER_POOL_TOKEN'], repo=identity['repo'])
+          def repair(pool):
+              replacement = retire_completed(pool, identity, time.time(), runs)
+              return replacement, replacement is not None
+          recovered = transact(data, repair)
+          print('已回收確認結束的舊占用' if recovered else '無可安全回收的占用；未啟動查詢')
+          if recovered:
+              active = runs.request('actions/workflows/scan.yml/runs?per_page=100')
+              if not isinstance(active.get('workflow_runs'), list):
+                  raise RuntimeError('Cannot verify existing scans; next normal schedule will resume.')
+              if any(r.get('status') != 'completed' for r in active['workflow_runs']):
+                  print('已有掃描排隊或執行，沿用既有工作。')
+              else:
+                  # urllib returns no JSON for GitHub dispatch HTTP 204.
+                  import urllib.request
+                  request = urllib.request.Request(
+                      'https://api.github.com/repos/' + identity['repo'] + '/actions/workflows/scan.yml/dispatches',
+                      data=b'{"ref":"main","inputs":{"executor":"auto","human_handoff":false}}',
+                      method='POST', headers={'Authorization':'Bearer '+runs.token,
+                          'Accept':'application/vnd.github+json','Content-Type':'application/json'})
+                  with urllib.request.urlopen(request, timeout=30) as response:
+                      if response.status != 204:
+                          raise RuntimeError('Dispatch not acknowledged.')
+                  print('已要求原流程啟動一次；是否實際讀取以 scan_status 為準。')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as output:
+              output.write('只回收已確認結束且超過硬上限的自己的占用。網站冷卻、額度與待查資料均保留。\n')
+          PY
