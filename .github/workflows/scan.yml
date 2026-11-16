@@ -122,6 +122,7 @@ jobs:
         env:
           SCAN_MODE: ${{ inputs.mode }}
           DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+          RUNNER_POOL_TOKEN: ${{ github.token }}
         run: |
           if [[ ",${SCAN_MODE}," == *",smoke,"* ]]; then
             echo '請使用 standby-check 做只讀診斷，不在分工排程執行 smoke'
