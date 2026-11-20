@@ -3,8 +3,6 @@ on:
   push:
     branches: [main]
     paths: ['.github/workflows/desktop-continuation-diagnostic.yml', '.github/scripts/Test-DesktopContinuation.ps1']
-  pull_request:
-    paths: ['.github/workflows/desktop-continuation-diagnostic.yml', '.github/scripts/Test-DesktopContinuation.ps1']
   workflow_dispatch:
 permissions:
   contents: read

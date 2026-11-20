@@ -3,8 +3,6 @@ on:
   push:
     branches: [main]
     paths: ['.github/workflows/install-hidden-pet.yml', '.github/scripts/Install-HiddenPet.ps1']
-  pull_request:
-    paths: ['.github/workflows/install-hidden-pet.yml', '.github/scripts/Install-HiddenPet.ps1']
   workflow_dispatch:
 permissions:
   contents: read
