@@ -61,12 +61,12 @@ jobs:
       labels: ${{ steps.route.outputs.labels }}
       kind: ${{ steps.route.outputs.kind }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: ${{ env.PRIVATE_REPO }}
           token: ${{ secrets.DATA_TOKEN }}
           persist-credentials: false
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
       - id: route
@@ -92,14 +92,14 @@ jobs:
       HANDOFF_ENABLED: ${{ github.event_name == 'workflow_dispatch' && inputs.human_handoff == true && '1' || '0' }}
     steps:
       - name: 取得掃描程式（私人 repo main）
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: ${{ env.PRIVATE_REPO }}
           token: ${{ secrets.DATA_TOKEN }}
           path: src
           persist-credentials: false
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         if: runner.os != 'Windows'
         with:
           python-version: '3.12'
@@ -115,7 +115,8 @@ jobs:
         env:
           DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
           RECOVERY_RUN_TOKEN: ${{ github.token }}
-        run: ./src/jx_fares/tools/Recover-LocalCheckpoint.ps1 -Device '${{ needs.route.outputs.kind }}'
+          TARGET_DEVICE: ${{ needs.route.outputs.kind }}
+        run: ./src/jx_fares/tools/Recover-LocalCheckpoint.ps1 -Device $env:TARGET_DEVICE
 
       - name: 領取共用待查批次
         id: claim
@@ -133,12 +134,13 @@ jobs:
       - name: 取得資料（私人 repo award-data）
         id: data
         if: steps.claim.outputs.claimed == 'true'
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: ${{ env.PRIVATE_REPO }}
           token: ${{ secrets.DATA_TOKEN }}
           ref: award-data
           path: data
+          persist-credentials: false
 
       - name: 還原這條線自己的掃描斷點
         if: steps.claim.outputs.parallel == 'true'
@@ -182,10 +184,26 @@ jobs:
         id: save
         if: ${{ always() && steps.data.outcome == 'success' && (steps.scan.outcome == 'success' || steps.scan.outcome == 'failure') }}
         working-directory: data
+        env:
+          DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+          PARALLEL_CLAIM: ${{ steps.claim.outputs.parallel }}
         run: |
+          askpass=$(mktemp)
+          trap 'rm -f "$askpass"' EXIT
+          cat <<'EOF' > "$askpass"
+          #!/bin/sh
+          case "$1" in
+            *Username*) printf '%s
+' "x-access-token" ;;
+            *) printf '%s
+' "$DATA_TOKEN" ;;
+          esac
+          EOF
+          chmod 700 "$askpass"
+          export GIT_ASKPASS="$askpass" GIT_TERMINAL_PROMPT=0
           git config user.name "award-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if [ "${{ steps.claim.outputs.parallel }}" = true ]; then
+          if [ "$PARALLEL_CLAIM" = true ]; then
             python ../src/jx_fares/parallel_store.py stage --repo "$GITHUB_REPOSITORY"
             case "$GITHUB_REPOSITORY" in
               EDDIELI-coder/as-award-scanner) worker=primary ;;
@@ -204,9 +222,9 @@ jobs:
           git commit -q -m "掃描 $(date '+%Y-%m-%d %H:%M')" || { echo "沒有變動"; exit 0; }
           # 私人 repo 的通知流程也會寫 award-data（不同檔案），衝突時重抓再推
           for i in 1 2 3 4; do
-            git push -q origin HEAD:award-data && exit 0
+            git -c credential.helper= push -q origin HEAD:award-data && exit 0
             sleep $((i * 5))
-            if ! git pull -q --rebase origin award-data; then
+            if ! git -c credential.helper= pull -q --rebase origin award-data; then
               python ../src/jx_fares/reconcile_scan_state.py
               GIT_EDITOR=true git rebase --continue
             fi
@@ -218,11 +236,26 @@ jobs:
         if: ${{ steps.save.outcome == 'success' && !contains(inputs.mode, 'smoke') }}
         continue-on-error: true
         working-directory: data
+        env:
+          DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
         run: |
+          askpass=$(mktemp)
+          trap 'rm -f "$askpass"' EXIT
+          cat <<'EOF' > "$askpass"
+          #!/bin/sh
+          case "$1" in
+            *Username*) printf '%s
+' "x-access-token" ;;
+            *) printf '%s
+' "$DATA_TOKEN" ;;
+          esac
+          EOF
+          chmod 700 "$askpass"
+          export GIT_ASKPASS="$askpass" GIT_TERMINAL_PROMPT=0
           git config user.name "award-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           for i in 1 2 3 4; do
-            git fetch -q origin award-data
+            git -c credential.helper= fetch -q origin award-data
             git reset --hard -q origin/award-data
             python ../src/jx_fares/parallel_store.py project > /dev/null
             python ../src/jx_fares/build_html.py --out award_lookup.html > /dev/null
@@ -238,7 +271,7 @@ jobs:
               exit 0
             fi
             git commit -q -m "快查頁更新 $(date '+%Y-%m-%d %H:%M')"
-            git push -q origin HEAD:award-data && { echo "快查頁已更新"; exit 0; }
+            git -c credential.helper= push -q origin HEAD:award-data && { echo "快查頁已更新"; exit 0; }
             sleep $((i * 5))
           done
           echo "快查頁推送重試未成功（掃描資料已保存）"
@@ -284,13 +317,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: ${{ env.PRIVATE_REPO }}
           ref: main
           token: ${{ secrets.DATA_TOKEN }}
           persist-credentials: false
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
       - name: 驗證分工讀寫（不開瀏覽器、不查航空）
