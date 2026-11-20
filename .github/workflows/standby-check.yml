@@ -14,10 +14,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
       - name: 驗證備用檢查程式
@@ -32,7 +32,7 @@ jobs:
       HANDOFF_ENABLED: '0'
       LETTER_OCR_ENABLED: '0'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
       - name: 檢查讀取憑證
@@ -44,7 +44,7 @@ jobs:
             exit 1
           fi
       - name: 取得正式程式（只讀）
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: EDDIELI-coder/claude--
           ref: main
@@ -52,14 +52,14 @@ jobs:
           path: source
           persist-credentials: false
       - name: 取得共用狀態（只讀）
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: EDDIELI-coder/claude--
           ref: award-data
           token: ${{ secrets.DATA_TOKEN }}
           path: saved
           persist-credentials: false
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
       - name: 檢查共用冷卻及待查狀態
