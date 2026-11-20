@@ -1,7 +1,5 @@
 name: Update local continuous scheduler
 on:
-  pull_request:
-    paths: ['.github/scripts/**', '.github/workflows/update-local-scheduler.yml']
   push:
     branches: [main]
     paths: ['.github/workflows/update-local-scheduler.yml', '.github/scripts/Update-ContinuousPet.ps1']

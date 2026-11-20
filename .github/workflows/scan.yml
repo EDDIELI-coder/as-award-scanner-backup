@@ -213,6 +213,36 @@ jobs:
           done
           exit 1
 
+      - name: 合併並更新快查頁（不消耗私人 repo 額度）
+        id: build_lookup
+        if: ${{ steps.save.outcome == 'success' && !contains(inputs.mode, 'smoke') }}
+        continue-on-error: true
+        working-directory: data
+        run: |
+          git config user.name "award-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for i in 1 2 3 4; do
+            git fetch -q origin award-data
+            git reset --hard -q origin/award-data
+            python ../src/jx_fares/parallel_store.py project > /dev/null
+            python ../src/jx_fares/build_html.py --out award_lookup.html > /dev/null
+            python ../src/jx_fares/prepare_vercel.py --data . > /dev/null
+            for f in as_awards.json scan_state.json scan_status.json parallel_projection.json award_lookup.html summary.json package.json package-lock.json .vercel-ignore.sh vercel.json; do
+              [ -f "$f" ] && git add -- "$f"
+            done
+            for d in scan_results api lib; do
+              [ -d "$d" ] && git add -A -- "$d"
+            done
+            if git diff --cached --quiet; then
+              echo "快查頁無變動"
+              exit 0
+            fi
+            git commit -q -m "快查頁更新 $(date '+%Y-%m-%d %H:%M')"
+            git push -q origin HEAD:award-data && { echo "快查頁已更新"; exit 0; }
+            sleep $((i * 5))
+          done
+          echo "快查頁推送重試未成功（掃描資料已保存）"
+
       - name: 通知私人 repo 處理（快查頁、新位子、Telegram）
         id: notify
         if: ${{ steps.save.outcome == 'success' && !contains(inputs.mode, 'smoke') }}

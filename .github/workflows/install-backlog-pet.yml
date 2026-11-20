@@ -3,8 +3,6 @@ on:
   push:
     branches: [main]
     paths: ['.github/workflows/install-backlog-pet.yml', '.github/scripts/Install-BacklogPet.ps1']
-  pull_request:
-    paths: ['.github/workflows/install-backlog-pet.yml', '.github/scripts/Install-BacklogPet.ps1']
   workflow_dispatch:
 permissions:
   contents: read
