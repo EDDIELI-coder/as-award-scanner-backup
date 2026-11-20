@@ -193,10 +193,8 @@ jobs:
           cat <<'EOF' > "$askpass"
           #!/bin/sh
           case "$1" in
-            *Username*) printf '%s
-' "x-access-token" ;;
-            *) printf '%s
-' "$DATA_TOKEN" ;;
+            *Username*) printf '%s\n' "x-access-token" ;;
+            *) printf '%s\n' "$DATA_TOKEN" ;;
           esac
           EOF
           chmod 700 "$askpass"
@@ -244,10 +242,8 @@ jobs:
           cat <<'EOF' > "$askpass"
           #!/bin/sh
           case "$1" in
-            *Username*) printf '%s
-' "x-access-token" ;;
-            *) printf '%s
-' "$DATA_TOKEN" ;;
+            *Username*) printf '%s\n' "x-access-token" ;;
+            *) printf '%s\n' "$DATA_TOKEN" ;;
           esac
           EOF
           chmod 700 "$askpass"
