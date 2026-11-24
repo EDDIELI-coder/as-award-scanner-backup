@@ -6,11 +6,7 @@ name: 掃描
 # 公開的執行紀錄只印成功／失敗的數字；完整紀錄存在私人 repo 的 scan_log.txt。
 
 on:
-  push:
-    branches: [main]
-    paths: ['.github/workflows/scan.yml']
-  schedule:
-    - cron: '17 */4 * * *'   # 備用執行器；與主執行器同時段平行掃描
+  # 雲端 GitHub-hosted IP 幾乎必遭網站阻擋，已停用自動定時與 push 排程；改由私人 repo 本機 self-hosted 每 2 小時自動掃描，僅保留手動觸發
   workflow_dispatch:
     inputs:
       mode:
